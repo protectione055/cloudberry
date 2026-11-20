@@ -1929,6 +1929,46 @@ Where column_reference_storage_directive is:
 
  <refsect1 id="sql-createtable-notes">
   <title>Notes</title>
+
+  <para>
+   <productname>Cloudberry</productname> also supports
+   <literal>CREATE DIRECTORY TABLE [ IF NOT EXISTS ] name
+   [ ( column_name data_type [, ...] ) ]</literal> to manage files and
+   their metadata. A directory table always begins with the built-in columns
+   <literal>relative_path</literal>, <literal>size</literal>,
+   <literal>last_modified</literal>, <literal>md5</literal>, and
+   <literal>tag</literal>. Optional user-defined columns follow these columns
+   and must have distinct names. They support ordinary storable SQL types,
+   including arrays and <type>jsonb</type>, and are initialized to NULL by
+   file uploads.
+  </para>
+
+  <para>
+   Upload a file with <literal>COPY BINARY name FROM 'source_path'
+   'relative_path'</literal>, then use <command>UPDATE</command> to assign
+   user-defined metadata. Both operations can run in one transaction.
+   Query metadata with <command>SELECT</command> from the table.
+   User-defined columns and <literal>tag</literal> can be updated; the other
+   built-in columns are maintained by the system. The
+   <literal>directory_table(regclass)</literal> function retains its fixed
+   result columns for reading file content.
+  </para>
+
+  <para>
+   User-defined directory table columns are specified when creating the table.
+   Defaults, column constraints, constrained domains at creation time,
+   generated columns, identity columns, and serial columns are not supported.
+   Later <command>ALTER DOMAIN</command> constraints are checked against
+   existing metadata, and file uploads validate NULL against the current
+   domain constraints. Adding, dropping, renaming, or changing the types of
+   these columns is not supported.
+  </para>
+
+  <para>
+   Directory tables, including their user-defined metadata, are outside the
+   current <application>pg_dump</application> backup scope. Back up column
+   definitions, metadata values, and file content separately.
+  </para>
     <para>
      <productname>PostgreSQL</productname> automatically creates an
      index for each unique constraint and primary key constraint to
