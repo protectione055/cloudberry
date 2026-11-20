@@ -381,7 +381,6 @@ remove_file_segment(PG_FUNCTION_ARGS)
 	SysScanDesc scan;
 	HeapTuple 	tuple;
 	Oid 		indexOid;
-	List		*indexOids;
 	Oid 		relId;
 	char 		*relativePath;
 	char 		*fullPathName;
@@ -405,10 +404,7 @@ remove_file_segment(PG_FUNCTION_ARGS)
 
 	SIMPLE_FAULT_INJECTOR("remove_file_inject");
 
-	indexOids = RelationGetIndexList(relation);
-	Assert(list_length(indexOids) == 1);
-
-	indexOid = list_nth_oid(indexOids, 0);
+	indexOid = RelationGetPrimaryKeyIndex(relation);
 	ScanKeyInit(&scankey,
 			 	1, /* relative_path */
 			 	BTEqualStrategyNumber, F_TEXTEQ,
@@ -425,7 +421,6 @@ remove_file_segment(PG_FUNCTION_ARGS)
 	}
 
 	systable_endscan(scan);
-	list_free(indexOids);
 
 	table_close(relation, NoLock);
 
