@@ -50,12 +50,8 @@ heap_toast_delete(Relation rel, HeapTuple oldtup, bool is_speculative)
 	Datum		toast_values[MaxHeapAttributeNumber];
 	bool		toast_isnull[MaxHeapAttributeNumber];
 
-	/*
-	 * We should only ever be called for tuples of plain relations or
-	 * materialized views --- recursing on a toast rel is bad news.
-	 */
-	Assert(rel->rd_rel->relkind == RELKIND_RELATION ||
-		   rel->rd_rel->relkind == RELKIND_MATVIEW);
+	/* Prevent recursive TOAST processing. */
+	Assert(RELKIND_CAN_TOAST(rel->rd_rel->relkind));
 
 	/*
 	 * Get the tuple descriptor and break down the tuple into fields.
@@ -138,12 +134,8 @@ heap_toast_insert_or_update_generic(Relation rel, void *newtup, void *oldtup,
 	 */
 	options &= ~HEAP_INSERT_SPECULATIVE;
 
-	/*
-	 * We should only ever be called for tuples of plain relations or
-	 * materialized views --- recursing on a toast rel is bad news.
-	 */
-	Assert(rel->rd_rel->relkind == RELKIND_RELATION ||
-		   rel->rd_rel->relkind == RELKIND_MATVIEW);
+	/* Prevent recursive TOAST processing. */
+	Assert(RELKIND_CAN_TOAST(rel->rd_rel->relkind));
 
 	/*
 	 * Get the tuple descriptor and break down the tuple(s) into fields.
