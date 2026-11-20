@@ -1245,6 +1245,13 @@ CopyFromDirectoryTable(CopyFromState cstate)
 
 			simple_table_tuple_update(resultRelInfo->ri_RelationDesc, &myslot->tts_tid, myslot,
 									  estate->es_snapshot, &update_indexes);
+			if (update_indexes != TU_None)
+			{
+				recheckIndexes = ExecInsertIndexTuples(resultRelInfo, myslot, estate,
+												 true, false, NULL, NIL,
+												 update_indexes == TU_Summarizing);
+				list_free(recheckIndexes);
+			}
 
 			ExecClearTuple(myslot);
 
@@ -1374,6 +1381,13 @@ CopyFromDirectoryTable(CopyFromState cstate)
 
 		simple_table_tuple_update(resultRelInfo->ri_RelationDesc, &myslot->tts_tid, myslot,
 								  estate->es_snapshot, &update_indexes);
+		if (update_indexes != TU_None)
+		{
+			recheckIndexes = ExecInsertIndexTuples(resultRelInfo, myslot, estate,
+											 true, false, NULL, NIL,
+											 update_indexes == TU_Summarizing);
+			list_free(recheckIndexes);
+		}
 
 		ExecClearTuple(myslot);
 
