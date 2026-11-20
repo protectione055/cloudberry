@@ -1279,14 +1279,20 @@ CTranslatorQueryToDXL::TranslateUpdateQueryToDXL()
 				   GPOS_WSZ_LIT("DML not enabled"));
 	}
 
-	CDXLNode *query_dxlnode = TranslateSelectQueryToDXL();
 	const RangeTblEntry *rte = (RangeTblEntry *) gpdb::ListNth(
 		m_query->rtable, m_query->resultRelation - 1);
-	if (rte->relkind == 'f')
+	if (rte->relkind == RELKIND_FOREIGN_TABLE)
 	{
 		GPOS_RAISE(gpdxl::ExmaDXL, gpdxl::ExmiQuery2DXLUnsupportedFeature,
 				   GPOS_WSZ_LIT("Updates with foreign tables"));
 	}
+	if (rte->relkind == RELKIND_DIRECTORY_TABLE)
+	{
+		GPOS_RAISE(gpdxl::ExmaDXL, gpdxl::ExmiQuery2DXLUnsupportedFeature,
+				   GPOS_WSZ_LIT("Updates with directory tables"));
+	}
+
+	CDXLNode *query_dxlnode = TranslateSelectQueryToDXL();
 	const RTEPermissionInfo *perminfo = gpdb::GetRTEPermissionInfo(
 		m_query->rteperminfos, rte);
 

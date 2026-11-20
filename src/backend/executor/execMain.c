@@ -2122,10 +2122,6 @@ CheckValidResultRel(ResultRelInfo *resultRelInfo, CmdType operation, ModifyTable
 	Relation	resultRel = resultRelInfo->ri_RelationDesc;
 	TriggerDesc *trigDesc = resultRel->trigdesc;
 	FdwRoutine *fdwroutine;
-	ModifyTable *node;
-	int			whichrel;
-	List 		*updateColnos;
-	ListCell	*lc;
 
 	/* Expect a fully-formed ResultRelInfo from InitResultRelInfo(). */
 	Assert(resultRelInfo->ri_needLockTagTuple ==
@@ -2299,21 +2295,20 @@ CheckValidResultRel(ResultRelInfo *resultRelInfo, CmdType operation, ModifyTable
 											RelationGetRelationName(resultRel))));
 					break;
 				case CMD_UPDATE:
-					if (mtstate)
+					Assert(mtstate != NULL);
+					if (!allow_dml_directory_table)
 					{
-						node = (ModifyTable *) mtstate->ps.plan;
-						whichrel = mtstate->mt_lastResultIndex;
+						Bitmapset  *updatedCols = ExecGetUpdatedCols(resultRelInfo,
+																	 mtstate->ps.state);
 
-						updateColnos = (List *) list_nth(node->updateColnosLists, whichrel);
-
-						foreach(lc, updateColnos)
+						for (AttrNumber attnum = 1; attnum <= DIRECTORY_TABLE_BUILTIN_COLUMNS; attnum++)
 						{
-							AttrNumber targetattnum = lfirst_int(lc);
-
-							if (targetattnum != DIRECTORY_TABLE_TAG_COLUMN_ATTNUM && !allow_dml_directory_table)
+							if (attnum != DIRECTORY_TABLE_TAG_COLUMN_ATTNUM &&
+								bms_is_member(attnum - FirstLowInvalidHeapAttributeNumber,
+											  updatedCols))
 								ereport(ERROR,
 											(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-											 errmsg("Only allow to update directory \"tag\" column.")));
+											 errmsg("only tag and user-defined columns of a directory table can be updated")));
 						}
 					}
 					break;

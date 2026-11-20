@@ -1512,7 +1512,7 @@ doDeletion(const ObjectAddress *object, int flags)
 						heap_drop_with_catalog(object->objectId);
 
 						/*
-						 * Remove driectory table file conteng
+						 * Remove directory table file content.
 						 */
 						if (drop_with_content && relKind == RELKIND_DIRECTORY_TABLE)
 						{

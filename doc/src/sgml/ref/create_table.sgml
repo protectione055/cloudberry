@@ -1929,6 +1929,24 @@ Where column_reference_storage_directive is:
 
  <refsect1 id="sql-createtable-notes">
   <title>Notes</title>
+
+    <para>
+     <productname>Cloudberry</productname> also supports
+     <literal>CREATE DIRECTORY TABLE [ IF NOT EXISTS ] <replaceable class="parameter">name</replaceable>
+     [ ( <replaceable class="parameter">column_name</replaceable> <replaceable class="parameter">data_type</replaceable> [, ...] ) ]</literal>.
+     Optional user-defined columns are appended after the built-in columns
+     (<literal>relative_path</literal>, <literal>size</literal>,
+     <literal>last_modified</literal>, <literal>md5</literal>, and
+     <literal>tag</literal>) and accept only column names and storable types
+     with no defaults or column-level domain constraints at creation time.
+     File uploads via <command>COPY</command> always initialize user-defined
+     columns to <literal>NULL</literal>, and <literal>tag</literal> and
+     user-defined columns can then be modified with <command>UPDATE</command>.
+     Domains used as directory table column types cannot be given a default
+     with <command>ALTER DOMAIN ... SET DEFAULT</command> while those columns
+     exist.
+    </para>
+
     <para>
      <productname>PostgreSQL</productname> automatically creates an
      index for each unique constraint and primary key constraint to

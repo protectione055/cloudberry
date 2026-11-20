@@ -45,6 +45,7 @@
 #include "catalog/pg_am.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_cast.h"
+#include "catalog/pg_class.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_compression.h"
 #include "catalog/pg_constraint.h"
@@ -68,6 +69,7 @@
 #include "parser/parse_expr.h"
 #include "parser/parse_func.h"
 #include "parser/parse_type.h"
+#include "storage/lmgr.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
@@ -2697,6 +2699,56 @@ DefineCompositeType(RangeVar *typevar, List *coldeflist)
 }
 
 /*
+ * Check direct column dependencies. A derived domain copies its base type's
+ * default at creation and keeps its own default thereafter.
+ */
+static void
+check_directory_table_domain_default(Oid domainoid)
+{
+	Relation	depRel;
+	ScanKeyData key[2];
+	SysScanDesc scan;
+	HeapTuple	tuple;
+
+	depRel = table_open(DependRelationId, AccessShareLock);
+	ScanKeyInit(&key[0],
+				Anum_pg_depend_refclassid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(TypeRelationId));
+	ScanKeyInit(&key[1],
+				Anum_pg_depend_refobjid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(domainoid));
+	scan = systable_beginscan(depRel, DependReferenceIndexId, true,
+							 NULL, lengthof(key), key);
+
+	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+	{
+		Form_pg_depend dep = (Form_pg_depend) GETSTRUCT(tuple);
+		HeapTuple	reltup;
+		Form_pg_class relform;
+
+		if (dep->classid != RelationRelationId || dep->objsubid <= 0)
+			continue;
+
+		reltup = SearchSysCache1(RELOID, ObjectIdGetDatum(dep->objid));
+		if (!HeapTupleIsValid(reltup))
+			continue;
+		relform = (Form_pg_class) GETSTRUCT(reltup);
+		if (relform->relkind == RELKIND_DIRECTORY_TABLE &&
+			get_atttype(dep->objid, dep->objsubid) == domainoid)
+			ereport(ERROR,
+					(errcode(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST),
+					 errmsg("cannot set a default for domain %s because directory table \"%s\" uses it",
+							format_type_be(domainoid), NameStr(relform->relname))));
+		ReleaseSysCache(reltup);
+	}
+
+	systable_endscan(scan);
+	table_close(depRel, AccessShareLock);
+}
+
+/*
  * AlterDomainDefault
  *
  * Routine implementing ALTER DOMAIN SET/DROP DEFAULT statements.
@@ -2772,6 +2824,20 @@ AlterDomainDefault(List *names, Node *defaultRaw)
 		}
 		else
 		{
+			/* Serialize with directory table column validation and creation. */
+			LockDatabaseObject(TypeRelationId, domainoid, 0, AccessExclusiveLock);
+
+			/* A concurrent ALTER or DROP might have changed the catalog tuple. */
+			heap_freetuple(tup);
+			tup = SearchSysCacheCopy1(TYPEOID, ObjectIdGetDatum(domainoid));
+			if (!HeapTupleIsValid(tup))
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_OBJECT),
+						 errmsg("type \"%s\" does not exist", TypeNameToString(typename))));
+			checkDomainOwner(tup);
+
+			check_directory_table_domain_default(domainoid);
+
 			/*
 			 * The below call to GenerateTypeDependencies() creates the
 			 * dependencies on types.  We are responsible for checking USAGE.
@@ -3506,7 +3572,8 @@ get_rels_with_domain(Oid domainOid, LOCKMODE lockmode)
 			 * index columns.
 			 */
 			if (rel->rd_rel->relkind != RELKIND_RELATION &&
-				rel->rd_rel->relkind != RELKIND_MATVIEW)
+				rel->rd_rel->relkind != RELKIND_MATVIEW &&
+				rel->rd_rel->relkind != RELKIND_DIRECTORY_TABLE)
 			{
 				relation_close(rel, lockmode);
 				continue;

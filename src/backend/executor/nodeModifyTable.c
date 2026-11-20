@@ -56,6 +56,8 @@
 #include "access/tupconvert.h"
 #include "access/xact.h"
 #include "catalog/catalog.h"
+#include "catalog/pg_directory_table.h"
+#include "catalog/storage_directory_table.h"
 #include "commands/trigger.h"
 #include "executor/execPartition.h"
 #include "executor/executor.h"
@@ -2224,9 +2226,48 @@ ExecUpdatePrologue(ModifyTableContext *context, ResultRelInfo *resultRelInfo,
 		if (context->estate->es_insert_pending_result_relations != NIL)
 			ExecPendingInserts(context->estate);
 
-		return ExecBRUpdateTriggers(context->estate, context->epqstate,
-									resultRelInfo, tupleid, oldtuple, slot,
-									result, &context->tmfd);
+		if (!ExecBRUpdateTriggers(context->estate, context->epqstate,
+								  resultRelInfo, tupleid, oldtuple, slot,
+								  result, &context->tmfd))
+			return false;
+
+		/*
+		 * CheckValidResultRel() only validates the UPDATE targetlist, so a
+		 * BEFORE ROW UPDATE trigger could still modify immutable built-in
+		 * columns of a directory table (all built-in columns other than
+		 * "tag").  Unless allow_dml_directory_table is enabled, verify that
+		 * the trigger left them unchanged.
+		 */
+		if (resultRelationDesc->rd_rel->relkind == RELKIND_DIRECTORY_TABLE &&
+			!allow_dml_directory_table)
+		{
+			TupleTableSlot *oldslot = ExecGetTriggerOldSlot(context->estate,
+														  resultRelInfo);
+			TupleDesc	tupdesc = RelationGetDescr(resultRelationDesc);
+
+			/* Compare with the row locked for the trigger, including EPQ. */
+			for (AttrNumber attnum = 1; attnum <= DIRECTORY_TABLE_BUILTIN_COLUMNS; attnum++)
+			{
+				Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
+				bool		oldisnull;
+				bool		newisnull;
+				Datum		oldvalue;
+				Datum		newvalue;
+
+				if (attnum == DIRECTORY_TABLE_TAG_COLUMN_ATTNUM)
+					continue;
+
+				oldvalue = slot_getattr(oldslot, attnum, &oldisnull);
+				newvalue = slot_getattr(slot, attnum, &newisnull);
+				if (oldisnull != newisnull ||
+					(!oldisnull && !datum_image_eq(oldvalue, newvalue,
+												  attr->attbyval, attr->attlen)))
+					ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							 errmsg("cannot change directory table column \"%s\" in a BEFORE UPDATE trigger",
+									NameStr(attr->attname))));
+			}
+		}
 	}
 
 	return true;

@@ -726,24 +726,17 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 */
 	schema = NIL;
 	cooked_constraints = NIL;
-	if (relkind == RELKIND_DIRECTORY_TABLE)
+	foreach(listptr, stmt->tableElts)
 	{
-		schema = GetDirectoryTableSchema();
-	}
-	else
-	{
-		foreach(listptr, stmt->tableElts)
-		{
-			Node	   *node = lfirst(listptr);
+		Node	   *node = lfirst(listptr);
 
-			if (IsA(node, CookedConstraint))
-			{
-				Assert(Gp_role == GP_ROLE_EXECUTE);
-				cooked_constraints = lappend(cooked_constraints, node);
-			}
-			else
-				schema = lappend(schema, node);
+		if (IsA(node, CookedConstraint))
+		{
+			Assert(Gp_role == GP_ROLE_EXECUTE);
+			cooked_constraints = lappend(cooked_constraints, node);
 		}
+		else
+			schema = lappend(schema, node);
 	}
 
 	/*
@@ -5901,6 +5894,13 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 				break;
 			}
 			ATSimplePermissions(cmd->subtype, rel, ATT_TABLE | ATT_DIRECTORY_TABLE | ATT_FOREIGN_TABLE);
+
+			/* File metadata must stay on the segment holding the file. */
+			if (rel->rd_rel->relkind == RELKIND_DIRECTORY_TABLE &&
+				lsecond((List *) cmd->def) != NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot change the distribution policy of a directory table")));
 
 			if (!recursing) /* MPP-5772, MPP-5784 */
 			{
@@ -21329,6 +21329,13 @@ ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode)
 				typeobj;
 	HeapTuple	classtuple;
 	AclResult	aclresult;
+
+	/* Existing typed directory tables can still detach with NOT OF. */
+	if (rel->rd_rel->relkind == RELKIND_DIRECTORY_TABLE)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("cannot bind directory table \"%s\" to a composite type",
+						RelationGetRelationName(rel))));
 
 	/* Validate the type. */
 	typetuple = typenameType(NULL, ofTypename, NULL);

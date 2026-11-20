@@ -196,6 +196,18 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 		Assert(!stmt->query);
 
+		if (rel->rd_rel->relkind == RELKIND_DIRECTORY_TABLE)
+		{
+			if (attnamelist != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("COPY with a column list is not supported for directory tables")));
+			if (is_from && stmt->whereClause != NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("COPY FROM with a WHERE clause is not supported for directory tables")));
+		}
+
 		if (is_from && !allowSystemTableMods && IsUnderPostmaster && IsSystemRelation(rel))
 		{
 			ereport(ERROR,
