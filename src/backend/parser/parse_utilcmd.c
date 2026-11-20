@@ -36,6 +36,7 @@
 #include "catalog/pg_attribute_encoding.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_constraint.h"
+#include "catalog/pg_directory_table.h"
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_statistic_ext.h"
@@ -311,6 +312,30 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 					 errmsg("cannot create partitioned table as inheritance child")));
 	}
 
+	if (IsA(stmt, CreateDirectoryTableStmt))
+	{
+		/* Build the complete schema once, before dispatching it to the QEs. */
+		foreach(elements, stmt->tableElts)
+		{
+			Node	   *element = lfirst(elements);
+			ColumnDef  *column;
+
+			if (!IsA(element, ColumnDef))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("directory tables support only column names and types")));
+			column = (ColumnDef *) element;
+			if (column->constraints != NIL || column->encoding != NIL ||
+				column->compression || column->storage_name || column->collClause ||
+				column->fdwoptions != NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("directory tables support only column names and types"),
+						 parser_errposition(pstate, column->location)));
+		}
+		stmt->tableElts = list_concat(GetDirectoryTableSchema(), stmt->tableElts);
+	}
+
 	/*
 	 * Run through each primary element in the table creation clause. Separate
 	 * column defs from constraints, and do preliminary analysis.
@@ -323,6 +348,19 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 		{
 			case T_ColumnDef:
 				transformColumnDefinition(&cxt, (ColumnDef *) element);
+				if (IsA(stmt, CreateDirectoryTableStmt))
+				{
+					ColumnDef  *column = (ColumnDef *) element;
+					Oid			typeid = typenameTypeId(pstate, column->typeName);
+
+					if (column->raw_default || column->cooked_default ||
+						column->is_not_null || column->identity || column->generated ||
+						DomainHasConstraints(typeid))
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("directory table columns must be nullable and have no defaults or constraints"),
+								 parser_errposition(pstate, column->location)));
+				}
 				break;
 
 			case T_Constraint:

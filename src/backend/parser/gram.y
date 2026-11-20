@@ -473,7 +473,7 @@ static void check_expressions_in_partition_key(PartitionSpec *spec, core_yyscan_
 %type <selectlimit> opt_select_limit select_limit limit_clause
 
 %type <list>	parse_toplevel stmtmulti routine_body_stmt_list
-				OptTableElementList TableElementList OptInherit definition
+				OptTableElementList OptDirectoryTableElementList TableElementList OptInherit definition
 				OptExtTableElementList ExtTableElementList
 				OptTypedTableElementList TypedTableElementList
 				reloptions opt_reloptions
@@ -9055,51 +9055,59 @@ AlterStorageUserMappingStmt:
  *****************************************************************************/
 
 CreateDirectoryTableStmt:
-            CREATE DIRECTORY TABLE qualified_name
-            table_access_method_clause OptTableSpace OptWithLocation OptTagOptList
-                {
-                    CreateDirectoryTableStmt *n = makeNode(CreateDirectoryTableStmt);
-                    $4->relpersistence = RELPERSISTENCE_PERMANENT;
-                    n->base.relation = $4;
-                    n->base.inhRelations = NIL;
-                    n->base.ofTypename = NULL;
-                    n->base.constraints = NIL;
-                    n->base.options = NIL;
-                    n->base.oncommit = ONCOMMIT_NOOP;
-                    /* TODO: support tablespace for data table ? */
-                    n->base.tablespacename = NULL;
-                    n->base.if_not_exists = false;
-                    n->base.distributedBy = GetDirectoryTableDistributedBy();
-                    n->base.relKind = RELKIND_DIRECTORY_TABLE;
-                    n->tablespacename = $6;
-                    n->location = $7;
-                    n->base.tags = $8;
+		CREATE DIRECTORY TABLE qualified_name OptDirectoryTableElementList
+		table_access_method_clause OptTableSpace OptWithLocation OptTagOptList
+		{
+			CreateDirectoryTableStmt *n = makeNode(CreateDirectoryTableStmt);
+			$4->relpersistence = RELPERSISTENCE_PERMANENT;
+			n->base.relation = $4;
+			n->base.tableElts = $5;
+			n->base.inhRelations = NIL;
+			n->base.ofTypename = NULL;
+			n->base.constraints = NIL;
+			n->base.options = NIL;
+			n->base.oncommit = ONCOMMIT_NOOP;
+			/* TODO: support tablespace for data table ? */
+			n->base.tablespacename = NULL;
+			n->base.if_not_exists = false;
+			n->base.distributedBy = GetDirectoryTableDistributedBy();
+			n->base.relKind = RELKIND_DIRECTORY_TABLE;
+			n->tablespacename = $7;
+			n->location = $8;
+			n->base.tags = $9;
 
-                    $$ = (Node *) n;
-                }
-            | CREATE DIRECTORY TABLE IF_P NOT EXISTS qualified_name
-            table_access_method_clause OptTableSpace OptWithLocation OptTagOptList
-                {
-                    CreateDirectoryTableStmt *n = makeNode(CreateDirectoryTableStmt);
-                    $7->relpersistence = RELPERSISTENCE_PERMANENT;
-                    n->base.relation = $7;
-                    n->base.inhRelations = NIL;
-                    n->base.ofTypename = NULL;
-                    n->base.constraints = NIL;
-                    n->base.options = NIL;
-                    n->base.oncommit = ONCOMMIT_NOOP;
-                    /* TODO: support tablespace for data table? */
-                    n->base.tablespacename = NULL;
-                    n->base.if_not_exists = true;
-                    n->base.distributedBy = GetDirectoryTableDistributedBy();
-                    n->base.relKind = RELKIND_DIRECTORY_TABLE;
-                    n->tablespacename = $9;
-                    n->location = $10;
-                    n->base.tags = $11;
+			$$ = (Node *) n;
+		}
+		| CREATE DIRECTORY TABLE IF_P NOT EXISTS qualified_name OptDirectoryTableElementList
+		table_access_method_clause OptTableSpace OptWithLocation OptTagOptList
+		{
+			CreateDirectoryTableStmt *n = makeNode(CreateDirectoryTableStmt);
+			$7->relpersistence = RELPERSISTENCE_PERMANENT;
+			n->base.relation = $7;
+			n->base.tableElts = $8;
+			n->base.inhRelations = NIL;
+			n->base.ofTypename = NULL;
+			n->base.constraints = NIL;
+			n->base.options = NIL;
+			n->base.oncommit = ONCOMMIT_NOOP;
+			/* TODO: support tablespace for data table? */
+			n->base.tablespacename = NULL;
+			n->base.if_not_exists = true;
+			n->base.distributedBy = GetDirectoryTableDistributedBy();
+			n->base.relKind = RELKIND_DIRECTORY_TABLE;
+			n->tablespacename = $10;
+			n->location = $11;
+			n->base.tags = $12;
 
-                    $$ = (Node *) n;
-                }
-            ;
+			$$ = (Node *) n;
+		}
+		;
+
+
+OptDirectoryTableElementList:
+		'(' OptTableElementList ')'          { $$ = $2; }
+		| /*EMPTY*/                           { $$ = NIL; }
+		;
 
 /*****************************************************************************
  *

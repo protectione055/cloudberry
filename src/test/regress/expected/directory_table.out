@@ -1468,19 +1468,19 @@ SELECT relative_path, size, tag FROM dir_table2 ORDER BY 1;
 UPDATE dir_table1 SET relative_path = 'nation_updated'; -- fail
 ERROR:  UPDATE on distributed key column not allowed on relation with update triggers
 UPDATE dir_table2 SET relative_path = 'nation_updated' WHERE relative_path = 'nation2'; -- fail
-ERROR:  Only allow to update directory "tag" column.
+ERROR:  only tag and user-defined columns of a directory table can be updated
 UPDATE dir_table1 SET size = 512;   -- fail
-ERROR:  Only allow to update directory "tag" column.
+ERROR:  only tag and user-defined columns of a directory table can be updated
 UPDATE dir_table2 SET size = 1024 WHERE relative_path = 'nation1';  -- fail
-ERROR:  Only allow to update directory "tag" column.
+ERROR:  only tag and user-defined columns of a directory table can be updated
 UPDATE dir_table1 SET last_modified = '2000-03-21 16:55:07+08'; -- fail
-ERROR:  Only allow to update directory "tag" column.
+ERROR:  only tag and user-defined columns of a directory table can be updated
 UPDATE dir_table2 SET last_modified = '2000-03-21 16:55:07+08' WHERE relative_path = 'nation3'; -- fail
-ERROR:  Only allow to update directory "tag" column.
+ERROR:  only tag and user-defined columns of a directory table can be updated
 UPDATE dir_table1 SET md5 = '70f09140d1b83eb3ecf9a0e28494d2a4'; -- fail
-ERROR:  Only allow to update directory "tag" column.
+ERROR:  only tag and user-defined columns of a directory table can be updated
 UPDATE dir_table2 SET md5 = '70f09140d1b83eb3ecf9a0e28494d2a4' WHERE relative_path = 'nation4'; -- fail
-ERROR:  Only allow to update directory "tag" column.
+ERROR:  only tag and user-defined columns of a directory table can be updated
 UPDATE dir_table1 SET tag = 'nation_new_tag';  -- ok
 NOTICE:  dir_table1 UPDATE BEFORE ROW  (seg0 127.0.1.1:7002 pid=21790)
 NOTICE:  dir_table1 UPDATE BEFORE ROW  (seg1 127.0.1.1:7003 pid=21792)

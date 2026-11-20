@@ -2310,10 +2310,12 @@ CheckValidResultRel(ResultRelInfo *resultRelInfo, CmdType operation, ModifyTable
 						{
 							AttrNumber targetattnum = lfirst_int(lc);
 
-							if (targetattnum != DIRECTORY_TABLE_TAG_COLUMN_ATTNUM && !allow_dml_directory_table)
+							if (targetattnum != DIRECTORY_TABLE_TAG_COLUMN_ATTNUM &&
+								targetattnum <= DIRECTORY_TABLE_BUILTIN_COLUMNS &&
+								!allow_dml_directory_table)
 								ereport(ERROR,
 											(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-											 errmsg("Only allow to update directory \"tag\" column.")));
+											 errmsg("only tag and user-defined columns of a directory table can be updated")));
 						}
 					}
 					break;
