@@ -227,6 +227,12 @@ DECLARE_INDEX(pg_class_tblspc_relfilenode_index, 3455, ClassTblspcRelfilenodeInd
 	((relkind) == RELKIND_PARTITIONED_TABLE || \
 	 (relkind) == RELKIND_PARTITIONED_INDEX)
 
+/* Relation kinds eligible for TOAST storage. */
+#define RELKIND_CAN_TOAST(relkind) \
+	((relkind) == RELKIND_RELATION || \
+	 (relkind) == RELKIND_MATVIEW || \
+	 (relkind) == RELKIND_DIRECTORY_TABLE)
+
 /*
  * Relation kinds that support tablespaces: All relation kinds with storage
  * support tablespaces, except that we don't support moving sequences around

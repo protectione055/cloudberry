@@ -1514,7 +1514,7 @@ doDeletion(const ObjectAddress *object, int flags)
 						/*
 						 * Remove driectory table file conteng
 						 */
-						if (drop_with_content)
+						if (drop_with_content && relKind == RELKIND_DIRECTORY_TABLE)
 						{
 							DirectoryTableDropStorage(object->objectId);
 						}

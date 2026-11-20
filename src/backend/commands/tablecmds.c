@@ -1378,6 +1378,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	if (relkind == RELKIND_DIRECTORY_TABLE)
 	{
 		CreateDirectoryTableIndex(rel);
+		/* Create TOAST storage before dispatching the table and its OIDs. */
+		NewRelationCreateToastTable(relationId, (Datum) 0);
 	}
 
 	/*
