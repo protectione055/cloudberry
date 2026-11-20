@@ -194,14 +194,13 @@ SendCopyFromForwardedTuple(CopyFromState cstate,
 						   char *line,
 						   int line_len,
 						   Datum *values,
-						   bool *nulls,
-						   bool is_directory_table);
+						   bool *nulls);
 static void SendCopyFromForwardedHeader(CopyFromState cstate, CdbCopy *cdbCopy);
 static void SendCopyFromForwardedError(CopyFromState cstate, CdbCopy *cdbCopy, char *errmsg);
 
 static bool NextCopyFromDispatch(CopyFromState cstate, ExprContext *econtext,
 								 Datum *values, bool *nulls);
-static bool NextCopyFromExecute(CopyFromState cstate, ExprContext *econtext, Datum *values, bool *nulls, bool is_directory_table);
+static bool NextCopyFromExecute(CopyFromState cstate, ExprContext *econtext, Datum *values, bool *nulls);
 static void HandleQDErrorFrame(CopyFromState cstate, char *p);
 
 static void CopyInitDataParser(CopyFromState cstate);
@@ -841,13 +840,12 @@ formDirTableSlot(CopyFromState cstate,
 {
 	TupleDesc	tupDesc;
 	AttrNumber	num_phys_attrs;
-	ListCell   *cur;
-	char	   *field[5];
+	char	   *field[DIRECTORY_TABLE_BUILTIN_COLUMNS];
 	FmgrInfo   *in_functions = cstate->in_functions;
 	Oid		   *typioparams = cstate->typioparams;
-	List	   *attnumlist = cstate->attnumlist;
 	pg_time_t	stampTime = (pg_time_t) time(NULL);
 	char		lastModified[128];
+	int			m;
 
 	pg_strftime(lastModified, sizeof(lastModified),
 				"%Y-%m-%d %H:%M:%S",
@@ -857,27 +855,22 @@ formDirTableSlot(CopyFromState cstate,
 	num_phys_attrs = tupDesc->natts;
 
 	MemSet(values, 0, num_phys_attrs * sizeof(Datum));
-	MemSet(nulls, false, num_phys_attrs * sizeof(bool));
+	MemSet(nulls, true, num_phys_attrs * sizeof(bool));
 
 	field[0] = relativePath; /* relative_path */
 	field[1] = psprintf(INT64_FORMAT, fileSize); /* size */
 	field[2] = lastModified; /* last_modified */
 	field[3] = md5sum; /* md5sum */
-	if (md5sum == NULL)
-		nulls[3] = true;
 	field[4] = tags; /* tags */
-	if (tags == NULL)
-		nulls[4] = true;
 
-	/* Loop to read the user attributes on the line. */
-	foreach(cur, attnumlist)
+	/* Validate NULL user attributes too, including current domain constraints. */
+	for (m = 0; m < num_phys_attrs; m++)
 	{
-		int    attnum = lfirst_int(cur);
-		int    m = attnum - 1;
 		char *value;
 		Form_pg_attribute att = TupleDescAttr(tupDesc, m);
 
-		value = field[m];
+		value = m < DIRECTORY_TABLE_BUILTIN_COLUMNS ? field[m] : NULL;
+		nulls[m] = (value == NULL);
 
 		values[m] = InputFunctionCall(&in_functions[m],
 									  value,
@@ -910,7 +903,6 @@ CopyFromDirectoryTable(CopyFromState cstate)
 	char	   relaFileDir[MAXPGPATH] = {0};
 	char	   *orgiFileDir = NULL;
 	char	   *relaFileName;
-	TupleDesc	tupdesc;
 	unsigned int targetSeg;
 	DirectoryTable     *dirTable;
 	pg_cryptohash_ctx  *hashCtx;
@@ -962,22 +954,8 @@ CopyFromDirectoryTable(CopyFromState cstate)
 	if (relaFileDir[0] != '\0')
 		orgiFileDir = psprintf("%s/%s", dirTablePath, relaFileDir);
 
-	/*
-	 * build tupledesc and slot for copy from
-	 */
-	tupdesc = CreateTemplateTupleDesc(5);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "relative_path",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "size",
-					   INT8OID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 3, "last_modified",
-					   TIMESTAMPTZOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 4, "md5",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 5, "tag",
-					   TEXTOID, -1 ,0);
-
-	myslot = MakeSingleTupleTableSlot(tupdesc, &TTSOpsVirtual);
+	myslot = ExecInitExtraTupleSlot(estate, RelationGetDescr(cstate->rel),
+								   &TTSOpsVirtual);
 
 	if (cstate->dispatch_mode == COPY_DISPATCH)
 	{
@@ -1072,8 +1050,7 @@ CopyFromDirectoryTable(CopyFromState cstate)
 								   cstate->line_buf.data,
 								   cstate->line_buf.len,
 								   myslot->tts_values,
-								   myslot->tts_isnull,
-								   true);
+								   myslot->tts_isnull);
 
 		for (;;)
 		{
@@ -1106,7 +1083,6 @@ CopyFromDirectoryTable(CopyFromState cstate)
 	}
 	else if (cstate->dispatch_mode == COPY_EXECUTOR)
 	{
-#define DIRECTORY_TABLE_COLUMNS	5
 		List	   *recheckIndexes = NIL;
 		CommandId	mycid = GetCurrentCommandId(true);
 		MemoryContext oldcontext = CurrentMemoryContext;
@@ -1115,7 +1091,7 @@ CopyFromDirectoryTable(CopyFromState cstate)
 
 		econtext = GetPerTupleExprContext(estate);
 
-		if (NextCopyFromExecute(cstate, econtext, myslot->tts_values, myslot->tts_isnull, true))
+		if (NextCopyFromExecute(cstate, econtext, myslot->tts_values, myslot->tts_isnull))
 		{
 			has_tuple = true;
 
@@ -1549,29 +1525,19 @@ BeginCopyFromDirectoryTable(ParseState *pstate,
 
 	initStringInfo(&cstate->line_buf);
 
-	/* Assign range table, we'll need it in CopyFrom. */
+	/* Assign range table and permission information for CopyFrom. */
 	if (pstate)
+	{
 		cstate->range_table = pstate->p_rtable;
+		cstate->rteperminfos = pstate->p_rteperminfos;
+	}
 
-	/*
-	 * build tupledesc and slot for copy from
-	 */
-	tupDesc = CreateTemplateTupleDesc(5);
-	TupleDescInitEntry(tupDesc, (AttrNumber) 1, "relative_path",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupDesc, (AttrNumber) 2, "size",
-					   INT8OID, -1, 0);
-	TupleDescInitEntry(tupDesc, (AttrNumber) 3, "last_modified",
-					   TIMESTAMPTZOID, -1, 0);
-	TupleDescInitEntry(tupDesc, (AttrNumber) 4, "md5",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupDesc, (AttrNumber) 5, "tag",
-					   TEXTOID, -1 ,0);
+	tupDesc = RelationGetDescr(rel);
 
 	num_phys_attrs = tupDesc->natts;
 
 	cstate->defaults = (bool *) palloc0(tupDesc->natts * sizeof(bool));
-	cstate->num_defaults = tupDesc->natts;
+	cstate->num_defaults = 0;
 
 	cstate->attnumlist = CopyGetAttnums(tupDesc, cstate->rel, NIL);
 
@@ -2187,7 +2153,7 @@ CopyFrom(CopyFromState cstate)
 
 		if (cstate->dispatch_mode == COPY_EXECUTOR)
 		{
-			if (!NextCopyFromExecute(cstate, econtext, myslot->tts_values, myslot->tts_isnull, false))
+			if (!NextCopyFromExecute(cstate, econtext, myslot->tts_values, myslot->tts_isnull))
 				break;
 
 			/*
@@ -2424,8 +2390,7 @@ CopyFrom(CopyFromState cstate)
 									   cstate->line_buf.data,
 									   cstate->line_buf.len,
 									   myslot->tts_values,
-									   myslot->tts_isnull,
-									   false);
+									   myslot->tts_isnull);
 			skip_tuple = true;
 			processed++;
 		}
@@ -3317,7 +3282,7 @@ NextCopyFromDispatch(CopyFromState cstate, ExprContext *econtext,
  * rows from the QD.
  */
 static bool
-NextCopyFromExecute(CopyFromState cstate, ExprContext *econtext, Datum *values, bool *nulls, bool is_directory_table)
+NextCopyFromExecute(CopyFromState cstate, ExprContext *econtext, Datum *values, bool *nulls)
 {
 	TupleDesc	tupDesc;
 	AttrNumber	num_phys_attrs,
@@ -3328,24 +3293,7 @@ NextCopyFromExecute(CopyFromState cstate, ExprContext *econtext, Datum *values, 
 	int			r;
 	bool		got_error;
 
-	if (!is_directory_table)
-	{
-		tupDesc = RelationGetDescr(cstate->rel);
-	}
-	else
-	{
-		tupDesc = CreateTemplateTupleDesc(5);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 1, "relative_path",
-						   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 2, "size",
-						   INT8OID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 3, "last_modified",
-						   TIMESTAMPTZOID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 4, "md5",
-						   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 5, "tag",
-						   TEXTOID, -1 ,0);
-	}
+	tupDesc = RelationGetDescr(cstate->rel);
 	num_phys_attrs = tupDesc->natts;
 	attr_count = list_length(cstate->attnumlist);
 
@@ -3652,8 +3600,7 @@ SendCopyFromForwardedTuple(CopyFromState cstate,
 						   char *line,
 						   int line_len,
 						   Datum *values,
-						   bool *nulls,
-						   bool is_directory_table)
+						   bool *nulls)
 {
 	TupleDesc	tupDesc;
 	FormData_pg_attribute *attr;
@@ -3666,24 +3613,7 @@ SendCopyFromForwardedTuple(CopyFromState cstate,
 	if (!OidIsValid(RelationGetRelid(rel)))
 		elog(ERROR, "invalid target table OID in COPY");
 
-	if (!is_directory_table)
-	{
-		tupDesc = RelationGetDescr(rel);
-	}
-	else
-	{
-		tupDesc = CreateTemplateTupleDesc(5);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 1, "relative_path",
-						   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 2, "size",
-						   INT8OID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 3, "last_modified",
-						   TIMESTAMPTZOID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 4, "md5",
-						   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupDesc, (AttrNumber) 5, "tag",
-						   TEXTOID, -1 ,0);
-	}
+	tupDesc = RelationGetDescr(rel);
 	attr = tupDesc->attrs;
 	num_phys_attrs = tupDesc->natts;
 
