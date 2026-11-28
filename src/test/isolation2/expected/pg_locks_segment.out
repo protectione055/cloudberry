@@ -32,17 +32,17 @@ LOCK
  relation | AccessShareLock | f       | 0             | t        | t        | t            
 (1 row)
 
--- 2. Early termination of pg_locks should release segment PGresults cleanly
--- via the memory context reset callback without error.
-2: SELECT count(*) FROM (SELECT * FROM pg_locks WHERE gp_segment_id >= 0 LIMIT 1) s;
+-- 2. Early termination of pg_lock_status() should release segment PGresults
+-- cleanly via the memory context reset callback.
+2: SELECT count(*) FROM (SELECT pg_lock_status() LIMIT 1) s;
  count 
 -------
  1     
 (1 row)
-2: SELECT count(*) FROM (SELECT * FROM pg_locks LIMIT 0) s;
+2: SELECT count(*) FROM (SELECT * FROM pg_locks WHERE gp_segment_id >= 0 LIMIT 1) s;
  count 
 -------
- 0     
+ 1     
 (1 row)
 
 -- Release the lock and let session 1 complete.

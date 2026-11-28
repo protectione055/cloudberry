@@ -32,10 +32,10 @@ INSERT INTO pg_locks_segment_test VALUES (1);
      AND relation = 'pg_locks_segment_test'::regclass
      AND NOT granted;
 
--- 2. Early termination of pg_locks should release segment PGresults cleanly
--- via the memory context reset callback without error.
+-- 2. Early termination of pg_lock_status() should release segment PGresults
+-- cleanly via the memory context reset callback.
+2: SELECT count(*) FROM (SELECT pg_lock_status() LIMIT 1) s;
 2: SELECT count(*) FROM (SELECT * FROM pg_locks WHERE gp_segment_id >= 0 LIMIT 1) s;
-2: SELECT count(*) FROM (SELECT * FROM pg_locks LIMIT 0) s;
 
 -- Release the lock and let session 1 complete.
 0U: ROLLBACK;

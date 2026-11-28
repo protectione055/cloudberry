@@ -585,9 +585,15 @@ pg_lock_status(PG_FUNCTION_ARGS)
 		 * Because we have one result set per segDB (rather than one big result
 		 * set with everything), we use mystatus->nextResultset and
 		 * mystatus->nextRow to track which result set we are on, and which row
-		 * within that result set we are returning, respectively. Each segment
-		 * reports at least the virtual transaction lock of the dispatched query.
+		 * within that result set we are returning, respectively.  Skip any
+		 * empty result sets defensively.
 		 */
+		while (mystatus->nextResultset < mystatus->numsegresults &&
+			   mystatus->nextRow >= PQntuples(mystatus->segresults[mystatus->nextResultset]))
+		{
+			mystatus->nextResultset++;
+			mystatus->nextRow = 0;
+		}
 		whichresultset = mystatus->nextResultset;
 		whichrow = mystatus->nextRow;
 		Assert(whichresultset < mystatus->numsegresults);
